@@ -1,34 +1,52 @@
-use proc_macro::{ TokenStream};
-use syn::{self, DeriveInput, Fields, Ident, Type, parse_macro_input};
+use proc_macro::TokenStream;
 use quote::{format_ident, quote};
+use syn::{self, parse_macro_input, DeriveInput, Fields, Ident, Type};
 #[proc_macro_derive(Builder)]
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    let iden = input.ident;
-    let build = format_ident!("{}Builder", &iden);
-
-    let mut fields_vec: Vec<Ident> = vec!();
-    let mut ty_vec: Vec<Type> = vec!();
+    let ident = &input.ident;
+    let ident_builder = format_ident!("{}Builder", &input.ident);
+    let mut field_names: Vec<Ident> = vec![];
+    let mut field_types: Vec<Type> = vec![];
     if let syn::Data::Struct(data_struct) = &input.data {
-        if let Fields::Named(fields) = &data_struct.fields {
-            for field in &fields.named {
-                fields_vec.push(field.clone().ident.unwrap());
-                ty_vec.push(field.clone().ty)
-            }
+        for field in &data_struct.fields {
+            field_names.push(field.clone().ident.unwrap());
+            field_types.push(field.clone().ty);
         }
     }
-    let expaned = quote!{
-        struct #build {
-            #(#fields_vec: Option<#ty_vec>),*
-        } 
-        impl #iden {
-            pub fn builder() -> #build {
-                #build {
-                    #(#fields_vec: None),*
-                }
-            }
+
+    let builder_struct = quote! {
+        pub struct #ident_builder {
+            #(#field_names: Option<#field_types>),*
         }
     };
 
-    TokenStream::from(expaned)
+    let builder_default = quote! {
+        #ident_builder {
+            #(#field_names: None),*
+        }
+    };
+
+    let setter_methods = field_names.iter().zip(field_types.iter()).map(|(name, ty)| {
+        quote! {
+            pub fn #name(&mut self, #name: #ty) -> &mut Self {
+                self.#name = Some(#name);
+                self
+            }
+        }
+    });
+    let expanded = quote! {
+        #builder_struct
+
+        impl #ident {
+            pub fn builder() -> #ident_builder {
+                #builder_default
+            }
+        }
+
+        impl #ident_builder {
+            #(#setter_methods)*
+        }
+    };
+    TokenStream::from(expanded)
 }
